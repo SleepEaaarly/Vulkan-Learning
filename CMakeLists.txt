@@ -14,7 +14,8 @@ include_directories(${PROJECT_SOURCE_DIR}/include ${SYSTEM_LIBRARY_DIR}/GLM/glm-
 
 link_directories(${SYSTEM_LIBRARY_DIR}/GLFW/glfw-3.4.bin.WIN64/lib-vc2022 ${VULKAN_DIR}/Lib)
 
-add_executable(main src/main.cpp)
+# add_executable(main src/main.cpp)
+add_executable(main src/particles.cpp)
 
 target_link_libraries(main PRIVATE vulkan-1 glfw3)
 
