@@ -21,7 +21,6 @@
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtx/hash.hpp>
 
 #include <chrono>
 
@@ -200,6 +199,7 @@ private:
         createDescriptorPool();
         createComputeDescriptorSets();
         createCommandBuffers();
+        createComputeCommandBuffers();
         createSyncObjects();
     }
 
@@ -218,29 +218,31 @@ private:
     void cleanup() {
         cleanupSwapChain();
 
-        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+        vkDestroyPipeline(device, graphicsPipeline, nullptr);
+        vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
+
+        vkDestroyPipeline(device, computePipeline, nullptr);
+        vkDestroyPipelineLayout(device, computePipelineLayout, nullptr);
+
+        vkDestroyRenderPass(device, renderPass, nullptr);
+
+        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
             vkDestroyBuffer(device, uniformBuffers[i], nullptr);
             vkFreeMemory(device, uniformBuffersMemory[i], nullptr);
         }
 
-        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+        vkDestroyDescriptorPool(device, computeDescriptorPool, nullptr);
+      
+        vkDestroyDescriptorSetLayout(device, computeDescriptorSetLayout, nullptr);
+
+        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
             vkDestroyBuffer(device, shaderStorageBuffers[i], nullptr);
             vkFreeMemory(device, shaderStorageBuffersMemory[i], nullptr);
         }
 
-        vkDestroyDescriptorPool(device, computeDescriptorPool, nullptr);
-
-        vkDestroyDescriptorSetLayout(device, computeDescriptorSetLayout, nullptr);
-
-        vkDestroyPipeline(device, graphicsPipeline, nullptr);
-        vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
-        vkDestroyPipeline(device, computePipeline, nullptr);
-        vkDestroyPipelineLayout(device, computePipelineLayout, nullptr);
-        vkDestroyRenderPass(device, renderPass, nullptr);
-
-        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-            vkDestroySemaphore(device, imageAvailableSemaphores[i], nullptr);
+        for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
             vkDestroySemaphore(device, renderFinishedSemaphores[i], nullptr);
+            vkDestroySemaphore(device, imageAvailableSemaphores[i], nullptr);
             vkDestroySemaphore(device, computeFinishedSemaphores[i], nullptr);
             vkDestroyFence(device, inFlightFences[i], nullptr);
             vkDestroyFence(device, computeInFlightFences[i], nullptr);
@@ -253,7 +255,7 @@ private:
         if (enableValidationLayers) {
             DestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
         }
-        
+
         vkDestroySurfaceKHR(instance, surface, nullptr);
         vkDestroyInstance(instance, nullptr);
 
@@ -265,7 +267,7 @@ private:
     void drawFrame() {
         VkSubmitInfo submitInfo{};
         submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-
+        
         // Compute submission
         vkWaitForFences(device, 1, &computeInFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
 
@@ -350,7 +352,7 @@ private:
 
         VkApplicationInfo appInfo{};
         appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-        appInfo.pApplicationName = "Hello Triangle";
+        appInfo.pApplicationName = "Particles";
         appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
         appInfo.pEngineName = "No Engine";
         appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
@@ -452,8 +454,6 @@ private:
         }
 
         VkPhysicalDeviceFeatures deviceFeatures{};
-        deviceFeatures.samplerAnisotropy = VK_TRUE;
-        deviceFeatures.sampleRateShading = VK_TRUE; // enable sample shading feature for the device
 
         VkDeviceCreateInfo createInfo{};
         createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
@@ -550,7 +550,7 @@ private:
         colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
         colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-        
+
         VkAttachmentReference colorAttachmentRef{};
         colorAttachmentRef.attachment = 0;
         colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
@@ -581,7 +581,7 @@ private:
             throw std::runtime_error("failed to create render pass!");
         }
     }
-
+    
     void createComputeDescriptorSetLayout() {
         std::array<VkDescriptorSetLayoutBinding, 3> layoutBindings{};
         layoutBindings[0].descriptorCount = 1;
@@ -646,7 +646,7 @@ private:
 
         VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
         inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-        inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+        inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
         inputAssembly.primitiveRestartEnable = VK_FALSE;
 
         std::vector<VkDynamicState> dynamicStates = {
@@ -740,7 +740,7 @@ private:
     }
 
     void createComputePipeline() {
-        auto computeShaderCode = readFile("shaders/particles/compute.spv");
+        auto computeShaderCode = readFile("shaders/particles/comp.spv");
 
         VkShaderModule computeShaderModule = createShaderModule(computeShaderCode);
 
@@ -750,26 +750,25 @@ private:
         computeShaderStageInfo.module = computeShaderModule;
         computeShaderStageInfo.pName = "main";
 
-        VkPipelineLayoutCreateInfo computePipelineLayoutInfo{};
-        computePipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-        computePipelineLayoutInfo.setLayoutCount = 1;
-        computePipelineLayoutInfo.pSetLayouts = &computeDescriptorSetLayout;
+        VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
+        pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        pipelineLayoutInfo.setLayoutCount = 1;
+        pipelineLayoutInfo.pSetLayouts = &computeDescriptorSetLayout;
 
-        if (vkCreatePipelineLayout(device, &computePipelineLayoutInfo, nullptr, &computePipelineLayout) != VK_SUCCESS) {
+        if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &computePipelineLayout) != VK_SUCCESS) {
             throw std::runtime_error("failed to create compute pipeline layout!");
         }
 
-        VkComputePipelineCreateInfo computePipelineInfo{};
-        computePipelineInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-        computePipelineInfo.layout = computePipelineLayout;
-        computePipelineInfo.stage = computeShaderStageInfo;
+        VkComputePipelineCreateInfo pipelineInfo{};
+        pipelineInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+        pipelineInfo.layout = computePipelineLayout;
+        pipelineInfo.stage = computeShaderStageInfo;
 
-        if (vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &computePipelineInfo, nullptr, &computePipeline) != VK_SUCCESS) {
+        if (vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &computePipeline) != VK_SUCCESS) {
             throw std::runtime_error("failed to create compute pipeline!");
         }
 
         vkDestroyShaderModule(device, computeShaderModule, nullptr);
-
     }
 
     void createFramebuffers() {
@@ -955,6 +954,20 @@ private:
 
         if (vkAllocateCommandBuffers(device, &allocInfo, commandBuffers.data()) != VK_SUCCESS) {
             throw std::runtime_error("failed to allocate command buffers!");
+        }
+    }
+
+    void createComputeCommandBuffers() {
+        computeCommandBuffers.resize(MAX_FRAMES_IN_FLIGHT);
+
+        VkCommandBufferAllocateInfo allocInfo{};
+        allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        allocInfo.commandPool = commandPool;
+        allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        allocInfo.commandBufferCount = (uint32_t) computeCommandBuffers.size();
+
+        if (vkAllocateCommandBuffers(device, &allocInfo, computeCommandBuffers.data()) != VK_SUCCESS) {
+            throw std::runtime_error("failed to allocate compute command buffers!");
         }
     }
 
