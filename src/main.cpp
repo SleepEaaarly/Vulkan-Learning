@@ -608,6 +608,7 @@ private:
         subpass.pColorAttachments = &colorAttachmentRef;
         subpass.pDepthStencilAttachment = &depthAttachmentRef;
         subpass.pResolveAttachments = &colorAttachmentResolveRef;
+        subpass.pInputAttachments = nullptr;
 
         VkSubpassDependency dependency{};
         dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
